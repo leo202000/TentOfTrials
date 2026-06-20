@@ -420,6 +420,13 @@ def main():
     if args.verbose:
         logger.setLevel(logging.DEBUG)
 
+    if not args.input and not args.dir:
+        logger.error("No input source specified. Use --input or --dir to provide log files.")
+        print("Error: No input source specified.", file=sys.stderr)
+        print("Usage: python3 log_aggregator.py --input <file> [--output <file>]", file=sys.stderr)
+        print("       python3 log_aggregator.py --dir <directory> [--output <file>]", file=sys.stderr)
+        return 1
+
     aggregator = LogAggregator()
 
     if args.input:
@@ -447,7 +454,8 @@ def main():
     summary = aggregator.get_summary()
     print(f"\nSummary:")
     print(f"  Total entries: {summary['total_entries']:,}")
-    print(f"  Time range: {summary.get('time_range', {}).get('start', 'N/A')} to {summary.get('time_range', {}).get('end', 'N/A')}")
+    time_range = summary.get("time_range") or {}
+    print(f"  Time range: {time_range.get("start", "N/A")} to {time_range.get("end", "N/A")}")
     print(f"  Error rate: {summary.get('error_rate', 0)}%")
     print(f"  By level: {', '.join(f'{k}={v}' for k, v in summary.get('by_level', {}).items())}")
     print(f"  By service: {', '.join(f'{k}={v}' for k, v in summary.get('by_service', {}).items())}")
