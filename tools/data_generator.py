@@ -310,6 +310,18 @@ def main():
     args = parse_args()
     gen = DataGenerator(args.seed)
 
+    # Validate count arguments
+    for name in ["users", "orders", "trades", "ticks", "candles"]:
+        val = getattr(args, name)
+        if val < 0:
+            raise argparse.ArgumentTypeError("--" + name, f"Negative value {val} is not valid for --{name}")
+
+    # Map deprecated --json/--csv to --format
+    if args.json:
+        args.format = "json"
+    if args.csv:
+        args.format = "csv"
+
     os.makedirs(args.output_dir, exist_ok=True)
 
     print(f"Generating test data with seed {args.seed}...")
@@ -343,7 +355,18 @@ def main():
 
     output_format = args.format
     if output_format == "both":
-        output_format = "json"  # Default for combined
+        # Export both JSON and CSV
+        gen.export_json(os.path.join(args.output_dir, "users.json"), users)
+        gen.export_json(os.path.join(args.output_dir, "orders.json"), orders)
+        gen.export_json(os.path.join(args.output_dir, "trades.json"), trades)
+        gen.export_json(os.path.join(args.output_dir, "ticks.json"), all_ticks)
+        gen.export_json(os.path.join(args.output_dir, "candles.json"), all_candles)
+        gen.export_json(os.path.join(args.output_dir, "instruments.json"), gen.instruments)
+        gen.export_csv(os.path.join(args.output_dir, "users.csv"), users)
+        gen.export_csv(os.path.join(args.output_dir, "orders.csv"), orders)
+        gen.export_csv(os.path.join(args.output_dir, "trades.csv"), trades)
+        print(f"\nAll data generated in {args.output_dir}/")
+        return
 
     # Export
     if output_format in ("json", "both"):
