@@ -150,6 +150,7 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 
 def check_memory_usage() -> Tuple[str, str, float]:
+    # Try Linux /proc/meminfo first
     try:
         with open("/proc/meminfo") as f:
             meminfo = {}
@@ -174,11 +175,43 @@ def check_memory_usage() -> Tuple[str, str, float]:
             return "WARNING", f"{pct:.1f}% used", pct
         else:
             return "CRITICAL", f"{pct:.1f}% used", pct
+    except (FileNotFoundError, IOError):
+        pass
     except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+        return "WARNING", f"Cannot check memory: {e}", 0
 
+    # Cross-platform fallback: try Windows API
+    try:
+        if hasattr(os, "name") and os.name == "nt":
+            import ctypes
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("length", ctypes.c_uint32),
+                    ("memoryLoad", ctypes.c_uint32),
+                    ("totalPhys", ctypes.c_uint64),
+                    ("availPhys", ctypes.c_uint64),
+                ]
+            mse = MEMORYSTATUSEX()
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.by_ref(mse), ctypes.sizeof(mse))
+            total = mse.totalPhys
+            available = mse.availPhys
+            used = total - available
+            pct = (used / total) * 100 if total > 0 else 0
+            total_gb = total // (1024 ** 3)
+            used_gb = used // (1024 ** 3)
+            if pct < MEMORY_THRESHOLD_WARNING:
+                return "OK", f"{pct:.1f}% used ({used_gb}GB/{total_gb}GB)", pct
+            elif pct < MEMORY_THRESHOLD_CRITICAL:
+                return "WARNING", f"{pct:.1f}% used", pct
+            else:
+                return "CRITICAL", f"{pct:.1f}% used", pct
+    except Exception:
+        pass
+
+    return "WARNING", "Memory usage not available on this platform", 0.0
 
 def check_load_average() -> Tuple[str, str, float]:
+    # Try Linux /proc/loadavg first
     try:
         with open("/proc/loadavg") as f:
             parts = f.read().strip().split()
@@ -192,9 +225,27 @@ def check_load_average() -> Tuple[str, str, float]:
                 return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
             else:
                 return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    except (FileNotFoundError, IOError):
+        pass
     except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+        return "WARNING", f"Cannot check load: {e}", 0
 
+    # Cross-platform fallback: try os.getloadavg()
+    try:
+        load = os.getloadavg()[0]
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load / cpu_count) * 100
+
+        if load_pct < 70:
+            return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        else:
+            return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    except AttributeError:
+        return "WARNING", "Load average not available on this platform", 0.0
+    except Exception as e:
+        return "WARNING", f"Load check fallback failed: {e}", 0
 
 # ---------------------------------------------------------------------------
 # HEALTH CHECK RUNNER
