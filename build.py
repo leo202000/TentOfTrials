@@ -815,6 +815,51 @@ def print_summary(results: list[tuple[str, bool, float, str, Optional[str]]]):
           f"{color(str(failed) + ' failed', Colors.RED)}, "
           f"{total_time:.1f}s total")
 
+def clean_diagnostics(keep: int = 0, dry_run: bool = False) -> int:
+    """Remove stale real diagnostic bundles, preserving the stub."""
+    if not DIAGNOSTIC_DIR.exists():
+        print(f"  No diagnostic directory found.")
+        return 0
+
+    stub_patterns = {"build-00000000.logd", "build-00000000.json", "build-00000000-metadata.json"}
+    real_bundles = {}
+    for f in DIAGNOSTIC_DIR.iterdir():
+        if not f.is_file():
+            continue
+        if f.name in stub_patterns:
+            continue
+        if not f.name.startswith("build-") or len(f.name) < 13:
+            continue
+        commit_id = f.stem.split("-")[1].split("-")[0] if "-" in f.stem else f.stem.replace("build-", "")
+        real_bundles.setdefault(commit_id, []).append(f)
+
+    if not real_bundles:
+        print(f"  No real diagnostic bundles found (only stub exists).")
+        return 0
+
+    sorted_bundles = sorted(real_bundles.items(), key=lambda x: x[1][0].stat().st_mtime, reverse=True)
+    to_keep = set()
+    for commit_id, files in sorted_bundles[:max(keep, 0)]:
+        to_keep.add(commit_id)
+
+    removed = 0
+    for commit_id, files in sorted_bundles:
+        if commit_id in to_keep:
+            print(f"  Kept: {commit_id} ({len(files)} files)")
+            continue
+        for f in files:
+            print(f"  Remove: {f.name}")
+            if not dry_run:
+                f.unlink()
+            removed += 1
+
+    action = "Would remove" if dry_run else "Removed"
+    print(f"\n  {action} {removed} file(s).")
+    if dry_run:
+        print(f"  (dry-run: no files were deleted)")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Tent of Trials  -  Multi-Language Build System",
@@ -852,6 +897,18 @@ Diagnostic bundle:
     parser.add_argument(
         "--list", action="store_true",
         help="List available modules and exit",
+    )
+    parser.add_argument(
+        "--clean-diagnostics", action="store_true",
+        help="Remove stale real diagnostic artifacts (keeps the stub)",
+    )
+    parser.add_argument(
+        "--keep", type=int, default=0,
+        help="When cleaning diagnostics, retain the newest N real bundles",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Preview diagnostic cleanup without deleting files",
     )
 
     args = parser.parse_args()
@@ -893,6 +950,9 @@ Diagnostic bundle:
     if not selected:
         print(f"  No modules selected.")
         return 0
+
+    if args.clean_diagnostics:
+        return clean_diagnostics(args.keep, args.dry_run)
 
     if args.clean:
         print(f"\n  {color('Cleaning build artifacts...', Colors.YELLOW)}")
